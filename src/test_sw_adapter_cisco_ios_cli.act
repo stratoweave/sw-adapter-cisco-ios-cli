@@ -1,0 +1,178 @@
+"""Cisco IOS CLI adapter tests."""
+
+import process
+import testing
+import yang
+import yang.gdata
+
+import stratoweave.device
+import sw_adapter_cisco_ios_cli as swcli
+import sw_adapter_cisco_ios_cli_model as cli_model
+
+from stratoweave.device_meta_config import \
+    stratoweave_rfs__device_entry as DeviceMetaConfig, \
+    stratoweave_rfs__device__credentials as Credentials, \
+    stratoweave_rfs__device__address_entry as Address, \
+    stratoweave_rfs__device__mock as Mock
+
+
+SHOW_VERSION_SAMPLE = """Cisco IOS Software, IOSv Software (VIOS-ADVENTERPRISEK9-M), Version 15.9(3)M6, RELEASE SOFTWARE (fc1)
+ROM: Bootstrap program is IOSv
+R1 uptime is 1 week, 2 days, 3 hours, 4 minutes
+System returned to ROM by reload
+System image file is "flash0:/vios-adventerprisek9-m"
+Cisco IOSv (revision 1.0) with 460033K/62464K bytes of memory.
+Processor board ID 9ABCD123
+Base Ethernet MAC Address          : 52:54:00:12:34:56
+Configuration register is 0x2102
+"""
+
+
+def _q(name: str) -> yang.gdata.Id:
+    return yang.gdata.Id(cli_model.NS_sw_adapter_cisco_ios_cli, name)
+
+
+def _version_filter() -> yang.gdata.FNode:
+    return yang.gdata.FNode(None, None, [
+        yang.gdata.FNode(_q("version"), children=[
+            yang.gdata.FNode(_q("hostname")),
+            yang.gdata.FNode(_q("version")),
+            yang.gdata.FNode(_q("serial"))
+        ])
+    ])
+
+
+def _version_container(n: ?yang.gdata.Node) -> ?yang.gdata.Container:
+    if n is not None and isinstance(n, yang.gdata.Container):
+        v = n.get_opt_cnt(_q("version"))
+        if v is not None and isinstance(v, yang.gdata.Container):
+            return v
+    return None
+
+
+def _version_leaf(n: ?yang.gdata.Node, name: str) -> ?str:
+    v = _version_container(n)
+    if v is not None:
+        leaf = v.get_opt_leaf(_q(name))
+        if leaf is not None:
+            val = leaf.val
+            if isinstance(val, str):
+                return val
+    return None
+
+
+def _first_list_string(n: ?yang.gdata.Node, name: str) -> ?str:
+    v = _version_container(n)
+    if v is not None:
+        leaf_list = v.get_opt_leaflist(_q(name))
+        if leaf_list is not None and len(leaf_list.entries) > 0:
+            val = leaf_list.entries[0].val
+            if isinstance(val, str):
+                return val
+    return None
+
+
+def make_cli_mock_dmc(name: str) -> DeviceMetaConfig:
+    return DeviceMetaConfig(
+        name=name,
+        credentials=Credentials("admin", "admin"),
+        type="CiscoIOSCLI",
+        address=[Address(name="primary", address="127.0.0.1", port=u64(22))],
+        mock=Mock(enabled=True)
+    )
+
+
+def new_cli_mock_device_mgr(t: testing.EnvT, name: str, on_reconf: action(str) -> None) -> stratoweave.device.DeviceMgr:
+    dev_types = {
+        "CiscoIOSCLI": swcli.device_type
+    }
+
+    schema_registry = stratoweave.device.SchemaRegistry()
+    dev = stratoweave.device.DeviceMgr(dev_types, process.ProcessCap(t.env.auth), name, t.log_handler, on_reconf, schema_registry)
+    dev.set_dmc(make_cli_mock_dmc(name))
+    return dev
+
+
+def _test_parse_show_version():
+    root = swcli.parse_show_version(SHOW_VERSION_SAMPLE)
+    data = root.to_gdata()
+
+    testing.assertEqual(_version_leaf(data, "hostname"), "R1")
+    testing.assertEqual(_version_leaf(data, "version"), "15.9(3)M6")
+    testing.assertEqual(_version_leaf(data, "uptime-weeks"), "1")
+    testing.assertEqual(_version_leaf(data, "uptime-days"), "2")
+    testing.assertEqual(_version_leaf(data, "uptime-hours"), "3")
+    testing.assertEqual(_version_leaf(data, "uptime-minutes"), "4")
+    testing.assertEqual(_version_leaf(data, "running-image"), "/vios-adventerprisek9-m")
+    testing.assertEqual(_version_leaf(data, "config-register"), "0x2102")
+    testing.assertEqual(_first_list_string(data, "serial"), "9ABCD123")
+    testing.assertEqual(_first_list_string(data, "hardware"), "IOSv")
+    testing.assertEqual(_first_list_string(data, "mac-address"), "52:54:00:12:34:56")
+
+
+actor _test_cli_subscription_show_version(t: testing.EnvT):
+    var done = False
+
+    def noop_on_reconf(name: str):
+        pass
+    dev = new_cli_mock_device_mgr(t, "cli-dev1", noop_on_reconf)
+
+    def fail(msg: str):
+        if done:
+            return
+        done = True
+        t.failure(ValueError(msg))
+
+    def succeed():
+        if done:
+            return
+        done = True
+        dev.remove_subscriptions("test-cli-show-version")
+        t.success()
+
+    def on_update(n: ?yang.gdata.Node, err: ?Exception):
+        if done:
+            return
+        if err is not None:
+            fail("Subscription update error: {err}")
+            return
+        if _version_leaf(n, "hostname") != "R1":
+            fail("Subscription update missing parsed hostname")
+            return
+        if _version_leaf(n, "version") != "15.9(3)M6":
+            fail("Subscription update missing parsed version")
+            return
+        if _first_list_string(n, "serial") != "9ABCD123":
+            fail("Subscription update missing parsed serial")
+            return
+
+        adapter = dev.get_adapter()
+        if isinstance(adapter, swcli.CiscoIOSCLIAdapter):
+            ms = adapter.get_mock_server()
+            if ms is not None and swcli.SHOW_VERSION_COMMAND in ms.get_commands():
+                succeed()
+                return
+        fail("Mock CLI server did not receive show version")
+
+    def start(attempt: int):
+        if done:
+            return
+        if swcli.MODULE_NAME not in dev.get_modules().0:
+            if attempt < 100:
+                after 0.05: start(attempt + 1)
+                return
+            fail("Cisco IOS CLI adapter did not connect")
+            return
+
+        adapter = dev.get_adapter()
+        if isinstance(adapter, swcli.CiscoIOSCLIAdapter):
+            ms = adapter.get_mock_server()
+            if ms is not None:
+                ms.add_response(swcli.SHOW_VERSION_COMMAND, SHOW_VERSION_SAMPLE)
+                want = set([yang.gdata.SubscriptionSpec(_version_filter(), period=0.05)])
+                dev.declare_subscriptions("test-cli-show-version", on_update, want)
+                return
+        fail("Expected CiscoIOSCLIAdapter from DeviceMgr")
+
+    start(0)
+    after 2.0: fail("Timed out waiting for CLI show version subscription")

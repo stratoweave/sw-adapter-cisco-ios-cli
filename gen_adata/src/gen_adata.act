@@ -1,0 +1,30 @@
+import file
+
+import sw_adapter_cisco_ios_cli_yang
+import yang
+
+
+def _trim_trailing_blank_line(src: bytes) -> bytes:
+    if src.endswith(b"\n\n"):
+        return src[:-1]
+    return src
+
+
+actor main(env):
+    wfc = file.WriteFileCap(file.FileCap(env.cap))
+
+    try:
+        schema = [sw_adapter_cisco_ios_cli_yang.cisco_ios_cli]
+        y = yang.compile(schema)
+        src = _trim_trailing_blank_line(
+            y.prdaclass(schema_yang=schema, include_state=True).encode()
+        )
+
+        wf = file.WriteFile(wfc, "src/sw_adapter_cisco_ios_cli_model.act")
+        await async wf.write(src)
+        await async wf.close()
+    except Exception as exc:
+        print(exc, err=True)
+        env.exit(1)
+    else:
+        env.exit(0)

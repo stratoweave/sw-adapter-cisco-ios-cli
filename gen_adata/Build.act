@@ -1,0 +1,8 @@
+name = "sw_ios_cli_gen_adata"
+fingerprint = 0xaf0386098ad8e44b
+dependencies = {
+    "yang": (
+        path="../../acton-yang"
+    )
+}
+zig_dependencies = {}

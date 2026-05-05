@@ -1,0 +1,10 @@
+.build
+build.zig*
+.acton.lock
+.actonc.lock
+out
+gen_adata/.build
+gen_adata/build.zig*
+gen_adata/.acton.lock
+gen_adata/.actonc.lock
+gen_adata/out

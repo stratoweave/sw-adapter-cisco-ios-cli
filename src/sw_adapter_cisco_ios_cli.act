@@ -1,0 +1,500 @@
+import logging
+import net
+import pipe
+import process
+import xml
+
+import drivers
+import mock_cli
+import router_client
+from textfsm import parse_textfsm, Row
+
+import yang
+import yang.gdata
+import yang.schema
+
+import stratoweave.device as swdev
+import sw_adapter_cisco_ios_cli_model as cli_model
+from stratoweave.device_meta_config import \
+    stratoweave_rfs__device_entry as DeviceMetaConfig
+from stratoweave.adapters.adapter import \
+    DeviceAdapter, ModCap, DISCONNECTED, CONNECTING, CONNECTED, \
+    SharedSubscription, SubscriptionOwner, NotConnectedError, ConfigError, \
+    subscription_delay, merge_subscription_tree
+
+
+MODULE_NAME = "sw-adapter-cisco-ios-cli"
+MODULE_REVISION = "2026-05-05"
+SHOW_VERSION_COMMAND = "show version"
+
+# From networktocode/ntc-templates cisco_ios_show_version.textfsm.
+CISCO_IOS_SHOW_VERSION_TEMPLATE = r"""Value SOFTWARE_IMAGE (\S+)
+Value VERSION (.+?)
+Value RELEASE (\S+)
+Value ROMMON (\S+)
+Value HOSTNAME (\S+)
+Value UPTIME (.+)
+Value UPTIME_YEARS (\d+)
+Value UPTIME_WEEKS (\d+)
+Value UPTIME_DAYS (\d+)
+Value UPTIME_HOURS (\d+)
+Value UPTIME_MINUTES (\d+)
+Value RELOAD_REASON (.+?)
+Value RUNNING_IMAGE (\S+)
+Value List HARDWARE (\S+|\S+\d\S+)
+Value List SERIAL (\w+)
+Value CONFIG_REGISTER (\S+)
+Value List MAC_ADDRESS ([0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5})
+Value RESTARTED (.+)
+
+Start
+  ^.*Software,*\s+\(${SOFTWARE_IMAGE}\),\sVersion\s${VERSION},*\s+RELEASE.*\(${RELEASE}\)
+  ^.*Software,*\s+\(${SOFTWARE_IMAGE}\),\sVersion\s${VERSION},*\s+\S+.*:${RELEASE}
+  ^.*Software,*\s+\(${SOFTWARE_IMAGE}\),\sVersion\s${VERSION},
+  ^ROM:\s+${ROMMON}
+  ^\s*${HOSTNAME}\s+uptime\s+is\s+${UPTIME} -> Continue
+  ^.*\s+uptime\s+is.*\s+${UPTIME_YEARS}\syear -> Continue
+  ^.*\s+uptime\s+is.*\s+${UPTIME_WEEKS}\sweek -> Continue
+  ^.*\s+uptime\s+is.*\s+${UPTIME_DAYS}\sday -> Continue
+  ^.*\s+uptime\s+is.*\s+${UPTIME_HOURS}\shour -> Continue
+  ^.*\s+uptime\s+is.*\s+${UPTIME_MINUTES}\sminute
+  ^[sS]ystem\s+image\s+file\s+is\s+"(.*?):${RUNNING_IMAGE}"
+  ^(?:[lL]ast\s+reload\s+reason:|System\s+returned\s+to\s+ROM\s+by)\s+${RELOAD_REASON}\s*$$
+  ^[Pp]rocessor\s+board\s+ID\s+${SERIAL}
+  ^[Cc]isco\s+${HARDWARE}\s+\(.+\).+
+  ^[Cc]onfiguration\s+register\s+is\s+${CONFIG_REGISTER}
+  ^Base\s+[Ee]thernet\s+MAC\s+[Aa]ddress\s+:\s+${MAC_ADDRESS}
+  ^System\s+restarted\s+at\s+${RESTARTED}$$
+  ^Switch\s+Port -> Stack
+  ^Switch\s\d+ -> Stack
+  ^Load\s+for\s+
+  ^Time\s+source\s+is
+
+Stack
+  ^[Ss]ystem\s+[Ss]erial\s+[Nn]umber\s+:\s+${SERIAL}
+  ^[Mm]odel\s+[Nn]umber\s+:\s+${HARDWARE}\s*
+  ^[Cc]onfiguration\s+register\s+is\s+${CONFIG_REGISTER}
+  ^Base [Ee]thernet MAC [Aa]ddress\s+:\s+${MAC_ADDRESS}
+"""
+
+
+def _q(name: str) -> yang.gdata.Id:
+    return yang.gdata.Id(cli_model.NS_sw_adapter_cisco_ios_cli, name)
+
+
+def _modset() -> dict[str, ModCap]:
+    return {
+        MODULE_NAME: ModCap(MODULE_NAME, cli_model.NS_sw_adapter_cisco_ios_cli, MODULE_REVISION)
+    }
+
+
+def _capabilities() -> list[str]:
+    return [
+        f"{cli_model.NS_sw_adapter_cisco_ios_cli}?module={MODULE_NAME}&revision={MODULE_REVISION}"
+    ]
+
+
+def _empty_config() -> yang.gdata.Node:
+    return yang.gdata.Container({}, txid="cli-read-only")
+
+
+def _first_version_row(rows: list[Row]) -> Row:
+    for row in rows:
+        has_version = row.get_def("VERSION", "") != ""
+        has_hostname = row.get_def("HOSTNAME", "") != ""
+        has_image = row.get_def("RUNNING_IMAGE", "") != ""
+        if has_version or has_hostname or has_image:
+            return row
+    raise ValueError("show version output did not match Cisco IOS TextFSM template")
+
+
+def parse_show_version(output: str) -> cli_model.root:
+    row = _first_version_row(parse_textfsm(CISCO_IOS_SHOW_VERSION_TEMPLATE, output))
+
+    return cli_model.root(version=cli_model.sw_adapter_cisco_ios_cli__version(
+        software_image=row.get("SOFTWARE_IMAGE"),
+        version=row.get("VERSION"),
+        release=row.get("RELEASE"),
+        rommon=row.get("ROMMON"),
+        hostname=row.get("HOSTNAME"),
+        uptime=row.get("UPTIME"),
+        uptime_years=row.get("UPTIME_YEARS"),
+        uptime_weeks=row.get("UPTIME_WEEKS"),
+        uptime_days=row.get("UPTIME_DAYS"),
+        uptime_hours=row.get("UPTIME_HOURS"),
+        uptime_minutes=row.get("UPTIME_MINUTES"),
+        reload_reason=row.get("RELOAD_REASON"),
+        running_image=row.get("RUNNING_IMAGE"),
+        hardware=row.many("HARDWARE"),
+        serial=row.many("SERIAL"),
+        config_register=row.get("CONFIG_REGISTER"),
+        mac_address=row.many("MAC_ADDRESS"),
+        restarted=row.get("RESTARTED")
+    ))
+
+
+def _filter_selects_show_version(filt: ?yang.gdata.FNode) -> bool:
+    if filt is None:
+        return True
+    f = yang.gdata.expect(filt, "subscription filter")
+    if f.name is not None:
+        return f.name == _q("version")
+    if len(f.children) == 0:
+        return True
+    for child in f.children:
+        if child.name == _q("version"):
+            return True
+    return False
+
+
+actor CiscoIOSCLIDriver(dev: swdev.DeviceMgr, bundled_schema: swdev.DeviceSchema, init_dmc: DeviceMetaConfig, schema_registry: swdev.SchemaRegistry, log_handler: logging.Handler, pcap: ?process.ProcessCap):
+    _log = logging.Logger(log_handler)
+    _log.info("CiscoIOSCLIDriver starting up")
+    _con_log_handler = logging.Handler("cli")
+    _con_log_handler.set_handler(log_handler)
+    _con_log_handler.set_output_level(logging.TRACE if init_dmc.debug.connection else logging.WARNING)
+
+    var dmc: DeviceMetaConfig = init_dmc
+    var state: int = DISCONNECTED
+    var running_conf: ?yang.gdata.Node = None
+    var client: ?router_client.Client = None
+    var mock_server: ?mock_cli.MockCliServer = None
+    var subs: dict[yang.gdata.SubscriptionSpec, SharedSubscription] = {}
+    var sub_owners: dict[str, SubscriptionOwner] = {}
+
+    def _use_mock_server(new_dmc: DeviceMetaConfig) -> bool:
+        if new_dmc.mock.enabled:
+            return True
+        if len(new_dmc.mock.preset) > 0:
+            return True
+        if len(new_dmc.mock.module.elements) > 0:
+            return True
+        return False
+
+    def _connect(new_dmc: DeviceMetaConfig):
+        pc = pcap
+        if pc is None:
+            _log.debug("CiscoIOSCLIDriver has no process capability; leaving disconnected")
+            return
+        proc_cap = yang.gdata.expect(pc, "process capability")
+
+        username = new_dmc.credentials.username
+        password = new_dmc.credentials.password
+        old_client = client
+        if old_client is not None:
+            old_client.disconnect()
+        client = None
+        mock_server = None
+        state = DISCONNECTED
+
+        if _use_mock_server(new_dmc):
+            state = CONNECTING
+            pipes = pipe.actor_pipe_pair()
+            mock_server = mock_cli.MockCliServer(
+                transport=pipes.server,
+                prompt="device# ",
+                canned_responses={},
+                log_handler=_con_log_handler
+            )
+            client = router_client.Client(
+                pcap=proc_cap,
+                address="actor-pipe",
+                username=username,
+                password=password,
+                device_type=drivers.DEVICE_TYPE_CISCO_IOSXE,
+                log_handler=_con_log_handler,
+                transport_pipe=pipes.client
+            )
+            after 0.05: _wait_connected(0)
+            return
+
+        mock_server = None
+        if len(new_dmc.address.elements) == 0:
+            _log.debug("CiscoIOSCLIDriver missing device address")
+            return
+
+        addr = new_dmc.address.elements[0]
+        addr_port = addr.port
+        port = int(addr_port) if addr_port is not None else 22
+        state = CONNECTING
+        client = router_client.Client(
+            pcap=proc_cap,
+            address=addr.address,
+            username=username,
+            password=password,
+            port=port,
+            device_type=drivers.DEVICE_TYPE_CISCO_IOSXE,
+            log_handler=_con_log_handler
+        )
+        after 0.1: _wait_connected(0)
+
+    def _wait_connected(attempt: int):
+        c = client
+        if c is not None and c.is_connected():
+            state = CONNECTED
+            running_conf = _empty_config()
+            dev.on_connect(_modset(), None)
+            return
+        if attempt < 100:
+            after 0.1: _wait_connected(attempt + 1)
+        else:
+            state = DISCONNECTED
+            _log.error("CiscoIOSCLIDriver timed out waiting for CLI readiness")
+
+    def set_dmc(new_dmc: DeviceMetaConfig):
+        old_dmcg = dmc.to_gdata()
+        new_dmcg = new_dmc.to_gdata()
+        if old_dmcg is not None and new_dmcg is not None:
+            if old_dmcg == new_dmcg:
+                _log.debug("CiscoIOSCLIDriver.set_dmc: ignoring identical device meta-config")
+                return
+        dmc = new_dmc
+        _con_log_handler.set_output_level(logging.TRACE if dmc.debug.connection else logging.WARNING)
+        _connect(new_dmc)
+
+    def configure(done, new_diff, new_conf, current_running_conf):
+        done(ConfigError("CiscoIOSCLIAdapter is operational-state only", new_diff, new_conf), running_conf)
+
+    def get_capabilities() -> list[str]:
+        return _capabilities()
+
+    def get_modules() -> dict[str, ModCap]:
+        return _modset()
+
+    def fetch_config(done: action(?yang.gdata.Node, ?Exception) -> None) -> None:
+        if state == CONNECTED:
+            done(running_conf, None)
+        else:
+            done(None, NotConnectedError())
+
+    def fetch_data(done: action(?yang.gdata.Node, ?Exception) -> None, filt: yang.gdata.FNode) -> None:
+        if not _filter_selects_show_version(filt):
+            done(None, ValueError("CiscoIOSCLIDriver only supports show version fetches"))
+            return
+
+        c = client
+        if state != CONNECTED or c is None:
+            done(None, NotConnectedError())
+            return
+        cmd_client = yang.gdata.expect(c, "CLI client")
+
+        def on_cmd(err: ?Exception, response: ?str):
+            if err is not None:
+                done(None, err)
+                return
+            if response is None:
+                done(None, ValueError("show version returned no data"))
+                return
+            try:
+                response_text = yang.gdata.expect(response, SHOW_VERSION_COMMAND)
+                parsed = parse_show_version(response_text).to_gdata()
+                done(yang.gdata.filter(parsed, filt), None)
+            except Exception as exc:
+                done(None, exc)
+
+        cmd_client.cmd(on_cmd, SHOW_VERSION_COMMAND)
+
+    def get_config():
+        return running_conf
+
+    def close(on_close: ?action() -> None=None):
+        c = client
+        if c is not None:
+            c.disconnect()
+        client = None
+        mock_server = None
+        state = DISCONNECTED
+        if on_close is not None:
+            on_close()
+
+    def rpc_xml(cb: action(?xml.Node, ?Exception) -> None, xml_rpc: xml.Node) -> None:
+        cb(None, ConfigError("CiscoIOSCLIAdapter does not support XML RPC"))
+
+    def _owner_publish(owner_id: str, err: ?Exception=None):
+        if owner_id not in sub_owners:
+            return
+        owner = sub_owners[owner_id]
+        merged = merge_subscription_tree(owner.want, subs)
+        if err is not None or merged != owner.last_merged:
+            owner.last_merged = merged
+            sub_owners[owner_id] = owner
+            owner.cb(merged, err)
+
+    def _sub_cancel(spec: yang.gdata.SubscriptionSpec):
+        if spec in subs:
+            subs[spec].active = False
+            del subs[spec]
+
+    def _sub_schedule_next(spec: yang.gdata.SubscriptionSpec):
+        if spec not in subs:
+            return
+        st = subs[spec]
+        if not st.active:
+            return
+        delay = subscription_delay(st.spec)
+        after delay: _sub_tick(spec)
+
+    def _sub_tick(spec: yang.gdata.SubscriptionSpec):
+        if spec not in subs:
+            return
+        st = subs[spec]
+        if not st.active:
+            return
+        if st.spec.period is None:
+            err = ValueError("CiscoIOSCLIDriver only supports periodic subscriptions")
+            for owner_id in st.owners:
+                _owner_publish(owner_id, err)
+            _sub_cancel(spec)
+            return
+        if not _filter_selects_show_version(st.spec.filt):
+            err = ValueError("CiscoIOSCLIDriver only supports show version subscriptions")
+            for owner_id in st.owners:
+                _owner_publish(owner_id, err)
+            _sub_cancel(spec)
+            return
+
+        c = client
+        if state != CONNECTED or c is None:
+            for owner_id in st.owners:
+                _owner_publish(owner_id, NotConnectedError())
+            _sub_schedule_next(spec)
+            return
+        cmd_client = yang.gdata.expect(c, "CLI client")
+
+        def on_cmd(err: ?Exception, response: ?str):
+            if spec not in subs:
+                return
+            st2 = subs[spec]
+            if not st2.active:
+                return
+            if err is not None:
+                for owner_id in st2.owners:
+                    _owner_publish(owner_id, err)
+            elif response is None:
+                cmd_err = ValueError("show version returned no data")
+                for owner_id in st2.owners:
+                    _owner_publish(owner_id, cmd_err)
+            else:
+                try:
+                    response_text = yang.gdata.expect(response, SHOW_VERSION_COMMAND)
+                    parsed = parse_show_version(response_text).to_gdata()
+                    st2.latest = yang.gdata.filter(parsed, st2.spec.filt)
+                    subs[spec] = st2
+                    for owner_id in st2.owners:
+                        _owner_publish(owner_id)
+                except Exception as exc:
+                    for owner_id in st2.owners:
+                        _owner_publish(owner_id, exc)
+            _sub_schedule_next(spec)
+
+        cmd_client.cmd(on_cmd, SHOW_VERSION_COMMAND)
+
+    def _add_owner_spec(owner_id: str, spec: yang.gdata.SubscriptionSpec):
+        if spec in subs:
+            st = subs[spec]
+        else:
+            st = SharedSubscription(spec)
+        st.owners.add(owner_id)
+        subs[spec] = st
+        if st.latest is None and len(st.owners) == 1:
+            _sub_tick(spec)
+
+    def _remove_owner_spec(owner_id: str, spec: yang.gdata.SubscriptionSpec):
+        if spec not in subs:
+            return
+        st = subs[spec]
+        st.owners.discard(owner_id)
+        if len(st.owners) == 0:
+            _sub_cancel(spec)
+        else:
+            subs[spec] = st
+
+    def declare_subscriptions(owner_id: str, cb: action(?yang.gdata.Node, ?Exception) -> None, want: set[yang.gdata.SubscriptionSpec]):
+        old_want = set()
+        last_merged = None
+        if owner_id in sub_owners:
+            owner = sub_owners[owner_id]
+            old_want = owner.want
+            last_merged = owner.last_merged
+
+        for spec in old_want:
+            if spec not in want:
+                _remove_owner_spec(owner_id, spec)
+
+        sub_owners[owner_id] = SubscriptionOwner(cb, want, last_merged)
+
+        for spec in want:
+            if spec not in old_want:
+                _add_owner_spec(owner_id, spec)
+
+        _owner_publish(owner_id)
+
+    def remove_subscriptions(owner_id: str):
+        if owner_id not in sub_owners:
+            return
+        old_want = sub_owners[owner_id].want
+        del sub_owners[owner_id]
+        for spec in old_want:
+            _remove_owner_spec(owner_id, spec)
+
+    def get_mock_server() -> ?mock_cli.MockCliServer:
+        return mock_server
+
+    _connect(dmc)
+
+
+class CiscoIOSCLIAdapter(DeviceAdapter):
+    def supports_mocking(self) -> bool:
+        return self._pcap is not None
+
+    def __init__(self, dev: swdev.DeviceMgr, bundled_schema: swdev.DeviceSchema, init_dmc: DeviceMetaConfig, schema_registry: swdev.SchemaRegistry, log_handler, pcap: ?process.ProcessCap, tcp_connect_cap: ?net.TCPConnectCap=None):
+        self._dev = dev
+        self._bundled_schema = bundled_schema
+        self._schema_registry = schema_registry
+        self._log_handler = log_handler
+        self._pcap = pcap
+        self._driver = CiscoIOSCLIDriver(self._dev, self._bundled_schema, init_dmc, self._schema_registry, self._log_handler, self._pcap)
+
+    def set_dmc(self, new_dmc: DeviceMetaConfig):
+        self._driver.set_dmc(new_dmc)
+
+    def configure(self, done, new_diff, new_conf, running_conf):
+        return self._driver.configure(done, new_diff, new_conf, running_conf)
+
+    def get_capabilities(self) -> list[str]:
+        return self._driver.get_capabilities()
+
+    def get_modules(self) -> dict[str, ModCap]:
+        return self._driver.get_modules()
+
+    def fetch_config(self, done: action(?yang.gdata.Node, ?Exception) -> None) -> None:
+        self._driver.fetch_config(done)
+
+    def fetch_data(self, done: action(?yang.gdata.Node, ?Exception) -> None, filt: yang.gdata.FNode) -> None:
+        self._driver.fetch_data(done, filt)
+
+    def get_config(self):
+        return self._driver.get_config()
+
+    def close(self, on_close: ?action() -> None=None):
+        self._driver.close(on_close)
+
+    def rpc_xml(self, cb: action(?xml.Node, ?Exception) -> None, xml_rpc: xml.Node) -> None:
+        return self._driver.rpc_xml(cb, xml_rpc)
+
+    def declare_subscriptions(self, owner_id: str, cb: action(?yang.gdata.Node, ?Exception) -> None, want: set[yang.gdata.SubscriptionSpec]):
+        self._driver.declare_subscriptions(owner_id, cb, want)
+
+    def remove_subscriptions(self, owner_id: str):
+        self._driver.remove_subscriptions(owner_id)
+
+    proc def get_mock_server(self) -> ?mock_cli.MockCliServer:
+        return self._driver.get_mock_server()
+
+
+device_type = swdev.DeviceType(
+    name="CiscoIOSCLI",
+    adapter_type=CiscoIOSCLIAdapter,
+    src_dnode=yang.schema.DRoot(),
+    oper_src_dnode=cli_model.SRC_DNODE
+)

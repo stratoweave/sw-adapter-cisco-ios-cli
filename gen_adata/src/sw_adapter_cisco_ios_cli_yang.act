@@ -1,0 +1,77 @@
+cisco_ios_cli = r"""module sw-adapter-cisco-ios-cli {
+  yang-version "1.1";
+  namespace "http://stratoweave.org/yang/sw-adapter-cisco-ios-cli";
+  prefix "sw-ios-cli";
+
+  description
+    "Cisco IOS CLI operational data derived from show command parsers.
+
+     The show-version leaves follow the field names exposed by the
+     Network to Code cisco_ios_show_version TextFSM template.";
+
+  revision 2026-05-05 {
+    description
+      "Initial operational model for Cisco IOS show version.";
+  }
+
+  container version {
+    config false;
+    description
+      "Operational facts parsed from show version.";
+
+    leaf software-image {
+      type string;
+    }
+    leaf version {
+      type string;
+    }
+    leaf release {
+      type string;
+    }
+    leaf rommon {
+      type string;
+    }
+    leaf hostname {
+      type string;
+    }
+    leaf uptime {
+      type string;
+    }
+    leaf uptime-years {
+      type string;
+    }
+    leaf uptime-weeks {
+      type string;
+    }
+    leaf uptime-days {
+      type string;
+    }
+    leaf uptime-hours {
+      type string;
+    }
+    leaf uptime-minutes {
+      type string;
+    }
+    leaf reload-reason {
+      type string;
+    }
+    leaf running-image {
+      type string;
+    }
+    leaf-list hardware {
+      type string;
+    }
+    leaf-list serial {
+      type string;
+    }
+    leaf config-register {
+      type string;
+    }
+    leaf-list mac-address {
+      type string;
+    }
+    leaf restarted {
+      type string;
+    }
+  }
+}"""
