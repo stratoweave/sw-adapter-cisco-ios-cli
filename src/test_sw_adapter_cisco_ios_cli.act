@@ -1,9 +1,8 @@
 """Cisco IOS CLI adapter tests."""
 
-import process
 import testing
 import yang
-import yang.gdata
+import yang.gdata as ygdata
 
 import stratoweave.device
 import sw_adapter_cisco_ios_cli as swcli
@@ -28,29 +27,29 @@ Configuration register is 0x2102
 """
 
 
-def _q(name: str) -> yang.gdata.Id:
-    return yang.gdata.Id(cli_model.NS_sw_adapter_cisco_ios_cli, name)
+def _q(name: str) -> ygdata.Id:
+    return ygdata.Id(cli_model.NS_sw_adapter_cisco_ios_cli, name)
 
 
-def _version_filter() -> yang.gdata.FNode:
-    return yang.gdata.FNode(None, None, [
-        yang.gdata.FNode(_q("version"), children=[
-            yang.gdata.FNode(_q("hostname")),
-            yang.gdata.FNode(_q("version")),
-            yang.gdata.FNode(_q("serial"))
+def _version_filter() -> ygdata.FNode:
+    return ygdata.FNode(None, None, [
+        ygdata.FNode(_q("version"), children=[
+            ygdata.FNode(_q("hostname")),
+            ygdata.FNode(_q("version")),
+            ygdata.FNode(_q("serial"))
         ])
     ])
 
 
-def _version_container(n: ?yang.gdata.Node) -> ?yang.gdata.Container:
-    if n is not None and isinstance(n, yang.gdata.Container):
+def _version_container(n: ?ygdata.Node) -> ?ygdata.Container:
+    if n is not None and isinstance(n, ygdata.Container):
         v = n.get_opt_cnt(_q("version"))
-        if v is not None and isinstance(v, yang.gdata.Container):
+        if v is not None and isinstance(v, ygdata.Container):
             return v
     return None
 
 
-def _version_leaf(n: ?yang.gdata.Node, name: str) -> ?str:
+def _version_leaf(n: ?ygdata.Node, name: str) -> ?str:
     v = _version_container(n)
     if v is not None:
         leaf = v.get_opt_leaf(_q(name))
@@ -61,7 +60,7 @@ def _version_leaf(n: ?yang.gdata.Node, name: str) -> ?str:
     return None
 
 
-def _first_list_string(n: ?yang.gdata.Node, name: str) -> ?str:
+def _first_list_string(n: ?ygdata.Node, name: str) -> ?str:
     v = _version_container(n)
     if v is not None:
         leaf_list = v.get_opt_leaflist(_q(name))
@@ -88,7 +87,7 @@ def new_cli_mock_device_mgr(t: testing.EnvT, name: str, on_reconf: action(str) -
     }
 
     schema_registry = stratoweave.device.SchemaRegistry()
-    dev = stratoweave.device.DeviceMgr(dev_types, process.ProcessCap(t.env.auth), name, t.log_handler, on_reconf, schema_registry)
+    dev = stratoweave.device.DeviceMgr(dev_types, None, name, t.log_handler, on_reconf, schema_registry)
     dev.set_dmc(make_cli_mock_dmc(name))
     return dev
 
@@ -130,7 +129,7 @@ actor _test_cli_subscription_show_version(t: testing.EnvT):
         dev.remove_subscriptions("test-cli-show-version")
         t.success()
 
-    def on_update(n: ?yang.gdata.Node, err: ?Exception):
+    def on_update(n: ?ygdata.Node, err: ?Exception):
         if done:
             return
         if err is not None:
@@ -169,7 +168,7 @@ actor _test_cli_subscription_show_version(t: testing.EnvT):
             ms = adapter.get_mock_server()
             if ms is not None:
                 ms.add_response(swcli.SHOW_VERSION_COMMAND, SHOW_VERSION_SAMPLE)
-                want = set([yang.gdata.SubscriptionSpec(_version_filter(), period=0.05)])
+                want = set([ygdata.SubscriptionSpec(_version_filter(), period=0.05)])
                 dev.declare_subscriptions("test-cli-show-version", on_update, want)
                 return
         fail("Expected CiscoIOSCLIAdapter from DeviceMgr")

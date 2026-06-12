@@ -1,11 +1,11 @@
 import base64
 import json
-import xml
+import std.xml as xml
 import yang
-import yang.adata
-import yang.gdata
-import yang.xml
-import yang.xpath
+import yang.adata as yadata
+import yang.gdata as ygdata
+import yang.xml as yxml
+import yang.xpath as yxpath
 from yang.identityref import Identityref, PartialIdentityref
 from yang.pattern import YangPattern
 from yang.schema import *
@@ -19,7 +19,7 @@ from yang.type import Decimal, Ranges
 _identities: list[DIdentity] = []
 
 
-SRC_DNODE_CHILD_0 = DContainer(module='sw-adapter-cisco-ios-cli', namespace='http://stratoweave.org/yang/sw-adapter-cisco-ios-cli', prefix='sw-ios-cli', name='version', config=False, description='Operational facts parsed from show version.', presence=False, children=[
+SRC_DNODE_CHILD_0: DContainer = DContainer(module='sw-adapter-cisco-ios-cli', namespace='http://stratoweave.org/yang/sw-adapter-cisco-ios-cli', prefix='sw-ios-cli', name='version', config=False, description='Operational facts parsed from show version.', presence=False, children=[
     DLeaf(module='sw-adapter-cisco-ios-cli', namespace='http://stratoweave.org/yang/sw-adapter-cisco-ios-cli', prefix='sw-ios-cli', name='software-image', config=False, mandatory=False, type_=DTypeString(name='string', description=None, reference=None, exts=[], builtin_type='string', default=None, length=None, patterns=[])),
     DLeaf(module='sw-adapter-cisco-ios-cli', namespace='http://stratoweave.org/yang/sw-adapter-cisco-ios-cli', prefix='sw-ios-cli', name='version', config=False, mandatory=False, type_=DTypeString(name='string', description=None, reference=None, exts=[], builtin_type='string', default=None, length=None, patterns=[])),
     DLeaf(module='sw-adapter-cisco-ios-cli', namespace='http://stratoweave.org/yang/sw-adapter-cisco-ios-cli', prefix='sw-ios-cli', name='release', config=False, mandatory=False, type_=DTypeString(name='string', description=None, reference=None, exts=[], builtin_type='string', default=None, length=None, patterns=[])),
@@ -40,14 +40,14 @@ SRC_DNODE_CHILD_0 = DContainer(module='sw-adapter-cisco-ios-cli', namespace='htt
     DLeaf(module='sw-adapter-cisco-ios-cli', namespace='http://stratoweave.org/yang/sw-adapter-cisco-ios-cli', prefix='sw-ios-cli', name='restarted', config=False, mandatory=False, type_=DTypeString(name='string', description=None, reference=None, exts=[], builtin_type='string', default=None, length=None, patterns=[]))
 ])
 
-SRC_DNODE = DRoot(
+SRC_DNODE: DRoot = DRoot(
     children=[SRC_DNODE_CHILD_0],
     identities=[],
     rpcs=[],
     module_metadata={'http://stratoweave.org/yang/sw-adapter-cisco-ios-cli':('sw-adapter-cisco-ios-cli', '2026-05-05')},
 )
 
-SRC_YANG_0 = r"""module sw-adapter-cisco-ios-cli {
+SRC_YANG_0: str = r"""module sw-adapter-cisco-ios-cli {
   yang-version "1.1";
   namespace "http://stratoweave.org/yang/sw-adapter-cisco-ios-cli";
   prefix "sw-ios-cli";
@@ -125,17 +125,17 @@ SRC_YANG_0 = r"""module sw-adapter-cisco-ios-cli {
   }
 }"""
 
-def src_yang():
+pure def src_yang() -> list[str]:
     return [
         SRC_YANG_0,
     ]
 
 
-NS_sw_adapter_cisco_ios_cli = 'http://stratoweave.org/yang/sw-adapter-cisco-ios-cli'
+NS_sw_adapter_cisco_ios_cli: str = 'http://stratoweave.org/yang/sw-adapter-cisco-ios-cli'
 
 
-_breaker1 = None
-class sw_adapter_cisco_ios_cli__version(yang.adata.MNode):
+_breaker1: None = None
+class sw_adapter_cisco_ios_cli__version(yadata.MNode):
     software_image: ?str
     version: ?str
     release: ?str
@@ -156,7 +156,6 @@ class sw_adapter_cisco_ios_cli__version(yang.adata.MNode):
     restarted: ?str
 
     mut def __init__(self, software_image: ?str, version: ?str, release: ?str, rommon: ?str, hostname: ?str, uptime: ?str, uptime_years: ?str, uptime_weeks: ?str, uptime_days: ?str, uptime_hours: ?str, uptime_minutes: ?str, reload_reason: ?str, running_image: ?str, hardware: ?list[str]=None, serial: ?list[str]=None, config_register: ?str, mac_address: ?list[str]=None, restarted: ?str) -> None:
-        self._ns = 'http://stratoweave.org/yang/sw-adapter-cisco-ios-cli'
         self.software_image = software_image
         self.version = version
         self.release = release
@@ -176,83 +175,82 @@ class sw_adapter_cisco_ios_cli__version(yang.adata.MNode):
         self.mac_address = mac_address if mac_address is not None else []
         self.restarted = restarted
 
-    def _get_attr(self, name: str) -> ?value:
-        if name == 'software_image':
+    pure def _get_attr(self, name: str) -> ?value:
+        if name == 'sw-ios-cli:software-image':
             return self.software_image
-        if name == 'version':
+        if name == 'sw-ios-cli:version':
             return self.version
-        if name == 'release':
+        if name == 'sw-ios-cli:release':
             return self.release
-        if name == 'rommon':
+        if name == 'sw-ios-cli:rommon':
             return self.rommon
-        if name == 'hostname':
+        if name == 'sw-ios-cli:hostname':
             return self.hostname
-        if name == 'uptime':
+        if name == 'sw-ios-cli:uptime':
             return self.uptime
-        if name == 'uptime_years':
+        if name == 'sw-ios-cli:uptime-years':
             return self.uptime_years
-        if name == 'uptime_weeks':
+        if name == 'sw-ios-cli:uptime-weeks':
             return self.uptime_weeks
-        if name == 'uptime_days':
+        if name == 'sw-ios-cli:uptime-days':
             return self.uptime_days
-        if name == 'uptime_hours':
+        if name == 'sw-ios-cli:uptime-hours':
             return self.uptime_hours
-        if name == 'uptime_minutes':
+        if name == 'sw-ios-cli:uptime-minutes':
             return self.uptime_minutes
-        if name == 'reload_reason':
+        if name == 'sw-ios-cli:reload-reason':
             return self.reload_reason
-        if name == 'running_image':
+        if name == 'sw-ios-cli:running-image':
             return self.running_image
-        if name == 'hardware':
+        if name == 'sw-ios-cli:hardware':
             return self.hardware
-        if name == 'serial':
+        if name == 'sw-ios-cli:serial':
             return self.serial
-        if name == 'config_register':
+        if name == 'sw-ios-cli:config-register':
             return self.config_register
-        if name == 'mac_address':
+        if name == 'sw-ios-cli:mac-address':
             return self.mac_address
-        if name == 'restarted':
+        if name == 'sw-ios-cli:restarted':
             return self.restarted
 
-    mut def to_gdata(self) -> yang.gdata.Node:
-        return yang.adata.from_adata(SRC_DNODE, self, loose=False, root_path=['sw-adapter-cisco-ios-cli:version'])
+    mut def to_gdata(self) -> ygdata.Node:
+        return yadata.from_adata(SRC_DNODE, self, loose=False, root_path=['sw-adapter-cisco-ios-cli:version'])
 
     @staticmethod
-    mut def from_gdata(n: ?yang.gdata.Node) -> sw_adapter_cisco_ios_cli__version:
+    mut def from_gdata(n: ?ygdata.Node) -> sw_adapter_cisco_ios_cli__version:
         if n is not None:
-            return sw_adapter_cisco_ios_cli__version(software_image=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'software-image')), version=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'version')), release=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'release')), rommon=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'rommon')), hostname=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'hostname')), uptime=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime')), uptime_years=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-years')), uptime_weeks=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-weeks')), uptime_days=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-days')), uptime_hours=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-hours')), uptime_minutes=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-minutes')), reload_reason=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'reload-reason')), running_image=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'running-image')), hardware=n.get_opt_strs(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'hardware')), serial=n.get_opt_strs(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'serial')), config_register=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'config-register')), mac_address=n.get_opt_strs(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'mac-address')), restarted=n.get_opt_str(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'restarted')))
+            return sw_adapter_cisco_ios_cli__version(software_image=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'software-image')), version=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'version')), release=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'release')), rommon=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'rommon')), hostname=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'hostname')), uptime=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime')), uptime_years=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-years')), uptime_weeks=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-weeks')), uptime_days=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-days')), uptime_hours=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-hours')), uptime_minutes=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'uptime-minutes')), reload_reason=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'reload-reason')), running_image=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'running-image')), hardware=n.get_opt_strs(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'hardware')), serial=n.get_opt_strs(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'serial')), config_register=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'config-register')), mac_address=n.get_opt_strs(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'mac-address')), restarted=n.get_opt_str(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'restarted')))
         return sw_adapter_cisco_ios_cli__version()
 
-    def copy(self) -> sw_adapter_cisco_ios_cli__version:
+    mut def copy(self) -> sw_adapter_cisco_ios_cli__version:
         """Create a deep copy of this adata object"""
         return sw_adapter_cisco_ios_cli__version.from_gdata(self.to_gdata())
 
 
-_breaker2 = None
-class root(yang.adata.MNode):
+_breaker2: None = None
+class root(yadata.MNode):
     version: sw_adapter_cisco_ios_cli__version
 
     mut def __init__(self, version: ?sw_adapter_cisco_ios_cli__version=None) -> None:
-        self._ns = ''
         self.version = version if version is not None else sw_adapter_cisco_ios_cli__version()
 
-    def _get_attr(self, name: str) -> ?value:
-        if name == 'version':
+    pure def _get_attr(self, name: str) -> ?value:
+        if name == 'sw-ios-cli:version':
             return self.version
 
-    mut def to_gdata(self) -> yang.gdata.Node:
-        return yang.adata.from_adata(SRC_DNODE, self, loose=False)
+    mut def to_gdata(self) -> ygdata.Node:
+        return yadata.from_adata(SRC_DNODE, self, loose=False)
 
     @staticmethod
-    mut def from_gdata(n: ?yang.gdata.Node) -> root:
+    mut def from_gdata(n: ?ygdata.Node) -> root:
         if n is not None:
-            return root(version=sw_adapter_cisco_ios_cli__version.from_gdata(n.get_opt_cnt(yang.gdata.Id(NS_sw_adapter_cisco_ios_cli, 'version'))))
+            return root(version=sw_adapter_cisco_ios_cli__version.from_gdata(n.get_opt_cnt(ygdata.Id(NS_sw_adapter_cisco_ios_cli, 'version'))))
         return root()
 
-    def copy(self) -> root:
+    mut def copy(self) -> root:
         """Create a deep copy of this adata object"""
         return root.from_gdata(self.to_gdata())
 
 
-actor rpc_root(tp: yang.gdata.TreeProvider):
+actor rpc_root(tp: ygdata.TreeProvider):
     pass

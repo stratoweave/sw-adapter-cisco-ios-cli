@@ -1,19 +1,24 @@
 name = "sw_adapter_cisco_ios_cli"
 fingerprint = 0xd9adcc39e66a04c4
 dependencies = {
-    "stratoweave": (
-        path="../orchestron"
-    ),
     "netcli": (
         path="../netcli"
+    ),
+    "pipe": (
+        repo_url="https://github.com/actonlang/pipe.git",
+        url="https://github.com/actonlang/pipe/archive/21a42ed57263c1d5c10ea733b03ae731b9efabd1.zip",
+        hash="N-V-__8AALYVAAAUvHQ_330h64Ozha0xuWXXabLGLRJgVxkm"
+    ),
+    "stratoweave": (
+        path="../orchestron"
     ),
     "textfsm": (
         path="../textfsm"
     ),
     "yang": (
         repo_url="https://github.com/stratoweave/acton-yang.git",
-        url="https://github.com/stratoweave/acton-yang/archive/695b4f20c65828702ba0a68ee08a3061bfa00449.zip",
-        hash="N-V-__8AAD4mJQD9qAKKVXj86BQ6BDd8Dcv0Iy76YSdNFwGb"
+        url="https://github.com/stratoweave/acton-yang/archive/81fb1b89e0ea212b0ff15c3009a4c2d7a1750dc7.zip",
+        hash="N-V-__8AAJmuJQBbpGy-JVleqKcpIp7M3Gpo4DolxhQuzuhI"
     )
 }
 zig_dependencies = {}
